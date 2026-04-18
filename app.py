@@ -108,20 +108,28 @@ model, scaler, feat_names = load_model_artifacts()
 X_full, y_full, bg_sample = load_training_data(feat_names)
 
 shap_explainer = None
-try:
-    shap_explainer = shap.Explainer(model)
-except Exception as e:
-    st.warning(f"SHAP explainer unavailable: {e}")
+if bg_sample is not None:
+    try:
+        # For sklearn models like XGBRegressor, provide background data as masker
+        bg_s = scaler.transform(bg_sample)
+        shap_explainer = shap.Explainer(model, data=bg_s)
+    except Exception as e:
+        st.warning(f"SHAP explainer unavailable: {e}")
+else:
+    st.warning("Background data not loaded — SHAP explanations unavailable.")
 
 lime_explainer = None
 if bg_sample is not None:
-    bg_s = scaler.transform(bg_sample)
-    lime_explainer = lime.lime_tabular.LimeTabularExplainer(
-        training_data=bg_s,
-        feature_names=feat_names,
-        mode="regression",
-        random_state=42,
-    )
+    try:
+        bg_s = scaler.transform(bg_sample)
+        lime_explainer = lime.lime_tabular.LimeTabularExplainer(
+            training_data=bg_s,
+            feature_names=feat_names,
+            mode="regression",
+            random_state=42,
+        )
+    except Exception as e:
+        st.warning(f"LIME explainer failed: {e}")
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
