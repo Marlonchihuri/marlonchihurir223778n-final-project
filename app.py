@@ -108,15 +108,15 @@ model, scaler, feat_names = load_model_artifacts()
 X_full, y_full, bg_sample = load_training_data(feat_names)
 
 shap_explainer = None
+shap_error = None
 if bg_sample is not None:
     try:
-        # For sklearn models like XGBRegressor, provide background data as masker
-        bg_s = scaler.transform(bg_sample)
-        shap_explainer = shap.Explainer(model, data=bg_s)
+        # Use TreeExplainer directly for XGBoost models
+        shap_explainer = shap.TreeExplainer(model, data=scaler.transform(bg_sample))
     except Exception as e:
-        st.warning(f"SHAP explainer unavailable: {e}")
+        shap_error = str(e)
 else:
-    st.warning("Background data not loaded — SHAP explanations unavailable.")
+    shap_error = "Background data not loaded"
 
 lime_explainer = None
 if bg_sample is not None:
@@ -129,7 +129,7 @@ if bg_sample is not None:
             random_state=42,
         )
     except Exception as e:
-        st.warning(f"LIME explainer failed: {e}")
+        pass
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
@@ -158,20 +158,19 @@ def predict_yield(row_df: pd.DataFrame) -> tuple:
 
 
 def get_shap_values(row_s: np.ndarray):
-    """Return SHAP values for a row, or None if SHAP is unavailable."""
+    """Return SHAP values for a row as 1D array, or None if SHAP is unavailable."""
     if shap_explainer is None:
         return None
     try:
-        expl = shap_explainer(row_s)
-        if hasattr(expl, "values"):
-            values = np.array(expl.values)
-        elif hasattr(expl, "shap_values"):
-            values = np.array(expl.shap_values)
-        else:
-            return None
-        return values[0] if values.ndim > 1 else values
+        # TreeExplainer.shap_values() returns shape (n_samples, n_features)
+        sv = shap_explainer.shap_values(row_s)
+        if isinstance(sv, list):
+            sv = sv[0] if len(sv) > 0 else None
+        # Flatten to 1D if 2D
+        if sv is not None and isinstance(sv, np.ndarray) and sv.ndim > 1:
+            sv = sv[0]
+        return sv
     except Exception as e:
-        st.warning(f"SHAP explanation failed: {e}")
         return None
 
 
