@@ -1,3 +1,4 @@
+%%writefile app.py
 # Install Streamlit if not already installed
 !pip install streamlit
 
@@ -205,7 +206,7 @@ st.markdown("""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=Space+Mono&display=swap');
   html, body, [class*="css"] { font-family: 'Sora', sans-serif; }
-  .metric-card {
+  .metric-card { 
       background: linear-gradient(135deg, #1a1a2e 0%, #16213e 60%, #0f3460 100%);
       border-radius: 16px; padding: 28px 32px; text-align: center;
       box-shadow: 0 8px 32px rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.08);
@@ -405,7 +406,7 @@ elif page == "🔍 Explain Prediction":
         colors = ["#27ae60" if sv[i] >= 0 else "#e74c3c" for i in top_idx]
         ax.barh(range(top_n), sv[top_idx], color=colors, alpha=0.85)
         ax.set_yticks(range(top_n))
-        ax.set_yticklabels([feat_names[i][:35] for t in ax.get_yticklabels()], fontsize=9)
+        ax.set_yticklabels([feat_names[i][:35] for i in top_idx][::-1], fontsize=9) # Corrected indexing for yticklabels
         ax.axvline(0, color="black", linewidth=0.7)
         ax.set_xlabel("SHAP contribution (kg/ha)")
         ax.set_title("SHAP Feature Contributions", fontweight="bold", fontsize=11)
@@ -460,7 +461,7 @@ elif page == "🔍 Explain Prediction":
             delta = new_pred_adj - pred_adj
             st.metric(
                 label=feat[:28],
-                value=f"+"{delta:,.0f} kg/ha" if delta > 0 else f"{delta:,.0f} kg/ha",
+                value=f"{delta:+, .0f} kg/ha", # Corrected f-string
                 delta=f"If +25% {FEATURE_UNITS.get(feat,'')}",
                 delta_color="normal",
             )
