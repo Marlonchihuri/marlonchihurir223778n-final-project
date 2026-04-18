@@ -1,3 +1,6 @@
+# Install Streamlit if not already installed
+!pip install streamlit
+
 """
 Phase 7 — Streamlit Farmer-Facing Maize Yield Prediction App
 One Acre Fund Maize Yield Prediction System
@@ -107,15 +110,17 @@ def load_training_data(feat_names):
 model, scaler, feat_names = load_model_artifacts()
 X_full, y_full, bg_sample = load_training_data(feat_names)
 
-shap_explainer = None
-try:
-    shap_explainer = shap.Explainer(model)
-except Exception as e:
-    st.warning(f"SHAP explainer unavailable: {e}")
-
-lime_explainer = None
+# Initialize bg_s even if lime_explainer is not needed, as it's useful for SHAP
+bg_s = None
 if bg_sample is not None:
     bg_s = scaler.transform(bg_sample)
+
+# Now use bg_s for shap_explainer
+shap_explainer = shap.TreeExplainer(model, data=bg_s)
+
+lime_explainer = None
+if bg_sample is not None: # This check is still valid for LIME
+    # bg_s is already defined here
     lime_explainer = lime.lime_tabular.LimeTabularExplainer(
         training_data=bg_s,
         feature_names=feat_names,
@@ -147,24 +152,6 @@ def predict_yield(row_df: pd.DataFrame) -> tuple:
     ci_lo   = max(0, pred - 1.645 * std_err)
     ci_hi   = pred + 1.645 * std_err
     return pred, (ci_lo, ci_hi)
-
-
-def get_shap_values(row_s: np.ndarray):
-    """Return SHAP values for a row, or None if SHAP is unavailable."""
-    if shap_explainer is None:
-        return None
-    try:
-        expl = shap_explainer(row_s)
-        if hasattr(expl, "values"):
-            values = np.array(expl.values)
-        elif hasattr(expl, "shap_values"):
-            values = np.array(expl.shap_values)
-        else:
-            return None
-        return values[0] if values.ndim > 1 else values
-    except Exception as e:
-        st.warning(f"SHAP explanation failed: {e}")
-        return None
 
 
 def yield_color(kg_ha: float) -> str:
@@ -354,31 +341,28 @@ if page == "🌾 Predict Yield":
     st.markdown('<p class="section-header">📊 Yield Driver Importance</p>', unsafe_allow_html=True)
 
     row_s = scaler.transform(input_row)
-    sv = get_shap_values(row_s)
-    if sv is None:
-        st.warning("SHAP explanations are unavailable in this environment.")
-    else:
-        sv_df = pd.DataFrame({"Feature": feat_names, "SHAP Value": sv})
-        sv_df = sv_df.reindex(sv_df["SHAP Value"].abs().sort_values(ascending=False).index).head(10)
+    sv    = shap_explainer.shap_values(row_s)[0]
+    sv_df = pd.DataFrame({"Feature": feat_names, "SHAP Value": sv})
+    sv_df = sv_df.reindex(sv_df["SHAP Value"].abs().sort_values(ascending=False).index).head(10)
 
-        fig = go.Figure(go.Bar(
-            x=sv_df["SHAP Value"],
-            y=sv_df["Feature"],
-            orientation="h",
-            marker_color=["#27ae60" if v >= 0 else "#e74c3c" for v in sv_df["SHAP Value"]],
-            text=[f"{v:+.0f}" for v in sv_df["SHAP Value"]],
-            textposition="outside",
-        ))
-        fig.update_layout(
-            title="SHAP Values — Feature Contributions to Your Prediction",
-            xaxis_title="Contribution to Yield (kg/ha)",
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            height=420,
-            font=dict(size=12),
-            margin=dict(l=10, r=10, t=40, b=10),
-        )
-        st.plotly_chart(fig, use_container_width=True)
+    fig = go.Figure(go.Bar(
+        x=sv_df["SHAP Value"],
+        y=sv_df["Feature"],
+        orientation="h",
+        marker_color=["#27ae60" if v >= 0 else "#e74c3c" for v in sv_df["SHAP Value"]],
+        text=[f"{v:+.0f}" for v in sv_df["SHAP Value"]],
+        textposition="outside",
+    ))
+    fig.update_layout(
+        title="SHAP Values — Feature Contributions to Your Prediction",
+        xaxis_title="Contribution to Yield (kg/ha)",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        height=420,
+        font=dict(size=12),
+        margin=dict(l=10, r=10, t=40, b=10),
+    )
+    st.plotly_chart(fig, use_container_width=True)
 
     # Growth stage progress bar
     doy = int(user_inputs["Planting Day of Year"])
@@ -401,12 +385,8 @@ elif page == "🔍 Explain Prediction":
     st.caption("Understand *why* the model predicted this yield using SHAP and LIME.")
 
     row_s = scaler.transform(input_row)
-    sv = get_shap_values(row_s)
-    if sv is None:
-        st.warning("SHAP explanations are unavailable in this environment.")
-        shap_top = []
-    else:
-        shap_top = sorted(zip(feat_names, sv), key=lambda x: abs(x[1]), reverse=True)
+    sv    = shap_explainer.shap_values(row_s)[0]
+    shap_top = sorted(zip(feat_names, sv), key=lambda x: abs(x[1]), reverse=True)
 
     # Plain-language summary
     st.markdown("### 📝 Plain-Language Summary")
@@ -418,29 +398,26 @@ elif page == "🔍 Explain Prediction":
     col1, col2 = st.columns(2)
 
     with col1:
-        if sv is None:
-            st.info("SHAP waterfall is unavailable when SHAP explanations cannot be computed.")
-        else:
-            st.markdown("### 🧮 SHAP Waterfall")
-            st.markdown("""
-            <div style="background:#f8f9fa;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#555">
-            <b>What is SHAP?</b> SHAP shows how each feature pushes the prediction
-            above or below the model's baseline. Green bars = positive impact,
-            red bars = negative impact.
-            </div>""", unsafe_allow_html=True)
-            top_n = 12
-            top_idx = np.argsort(np.abs(sv))[-top_n:][::-1]
-            fig, ax = plt.subplots(figsize=(7, 5))
-            colors = ["#27ae60" if sv[i] >= 0 else "#e74c3c" for i in top_idx]
-            ax.barh(range(top_n), sv[top_idx], color=colors, alpha=0.85)
-            ax.set_yticks(range(top_n))
-            ax.set_yticklabels([feat_names[i][:35] for i in top_idx][::-1], fontsize=9) # Corrected indexing for yticklabels
-            ax.axvline(0, color="black", linewidth=0.7)
-            ax.set_xlabel("SHAP contribution (kg/ha)")
-            ax.set_title("SHAP Feature Contributions", fontweight="bold", fontsize=11)
-            plt.tight_layout()
-            st.pyplot(fig)
-            plt.close()
+        st.markdown("### 🧮 SHAP Waterfall")
+        st.markdown("""
+        <div style="background:#f8f9fa;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#555">
+        <b>What is SHAP?</b> SHAP shows how each feature pushes the prediction
+        above or below the model's baseline. Green bars = positive impact,
+        red bars = negative impact.
+        </div>""", unsafe_allow_html=True)
+        top_n = 12
+        top_idx = np.argsort(np.abs(sv))[-top_n:][::-1]
+        fig, ax = plt.subplots(figsize=(7, 5))
+        colors = ["#27ae60" if sv[i] >= 0 else "#e74c3c" for i in top_idx]
+        ax.barh(range(top_n), sv[top_idx], color=colors, alpha=0.85)
+        ax.set_yticks(range(top_n))
+        ax.set_yticklabels([feat_names[i][:35] for i in top_idx][::-1], fontsize=9) # Corrected indexing for yticklabels
+        ax.axvline(0, color="black", linewidth=0.7)
+        ax.set_xlabel("SHAP contribution (kg/ha)")
+        ax.set_title("SHAP Feature Contributions", fontweight="bold", fontsize=11)
+        plt.tight_layout()
+        st.pyplot(fig)
+        plt.close()
 
     with col2:
         st.markdown("### 🔬 LIME Local Explanation")
