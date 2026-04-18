@@ -1,7 +1,3 @@
-%%writefile app.py
-# Install Streamlit if not already installed
-!pip install streamlit
-
 """
 Phase 7 — Streamlit Farmer-Facing Maize Yield Prediction App
 One Acre Fund Maize Yield Prediction System
