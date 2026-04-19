@@ -513,7 +513,7 @@ elif page == "🔍 Explain Prediction":
             delta = new_pred_adj - pred_adj
             st.metric(
                 label=feat[:28],
-                value=f"{delta:+, .0f} kg/ha", # Corrected f-string
+                value=f"{delta:+,.0f} kg/ha",
                 delta=f"If +25% {FEATURE_UNITS.get(feat,'')}",
                 delta_color="normal",
             )
