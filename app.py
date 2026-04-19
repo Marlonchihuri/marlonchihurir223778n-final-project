@@ -109,9 +109,14 @@ X_full, y_full, bg_sample = load_training_data(feat_names)
 
 
 @st.cache_resource
-def init_shap_explainer(model, scaler):
-    """Initialize SHAP TreeExplainer with caching."""
+def init_shap_explainer():
+    """Initialize SHAP TreeExplainer with caching (no parameters to avoid hashing issues)."""
     try:
+        # Load model and scaler locally
+        model_local = joblib.load("model.joblib")
+        scaler_local = joblib.load("scaler.joblib")
+        feat_names_local = joblib.load("feature_names.joblib")
+        
         # Load fresh background data for SHAP
         df = pd.read_csv("cleaned_data.csv")
         TARGET = "Yield (kg/ha)"
@@ -122,18 +127,17 @@ def init_shap_explainer(model, scaler):
         for c in df.select_dtypes("object").columns:
             df.drop(columns=[c], inplace=True)
         
-        feat_names_temp = joblib.load("feature_names.joblib")
-        X = df.drop(columns=[TARGET])[feat_names_temp]
+        X = df.drop(columns=[TARGET])[feat_names_local]
         sample = X.sample(min(500, len(X)), random_state=42)
-        bg_s = scaler.transform(sample)
+        bg_s = scaler_local.transform(sample)
         
-        explainer = shap.TreeExplainer(model, data=bg_s)
+        explainer = shap.TreeExplainer(model_local, data=bg_s)
         return explainer
     except Exception as e:
         return None
 
 
-shap_explainer = init_shap_explainer(model, scaler)
+shap_explainer = init_shap_explainer()
 
 lime_explainer = None
 if bg_sample is not None:
