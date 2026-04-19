@@ -252,8 +252,7 @@ st.markdown("""
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/4/41/Simple_Corn.svg/200px-Simple_Corn.svg.png", width=60)
-    st.markdown("## 🌽 MaizeIQ")
+    st.markdown("# 🌽 MaizeIQ")
     st.caption("AI-powered yield prediction for smallholder farmers")
     st.divider()
 
