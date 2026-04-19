@@ -241,9 +241,9 @@ st.markdown("""
   .metric-label { font-size: 0.9rem; color: #ccc; margin-top: 8px; }
   .section-header { font-size: 1.4rem; font-weight: 700; margin-top: 16px;
                     border-left: 4px solid #2ecc71; padding-left: 12px; }
-  .warn-box { background:#fff3cd; border-left:4px solid #f39c12;
+  .warn-box { background:#fff3cd; border-left:4px solid #f39c12; color: #333;
               padding:10px 14px; border-radius:6px; font-size:0.88rem; }
-  .success-box { background:#d4edda; border-left:4px solid #27ae60;
+  .success-box { background:#d4edda; border-left:4px solid #27ae60; color: #155724;
                  padding:10px 14px; border-radius:6px; font-size:0.88rem; }
   div[data-testid="metric-container"] { background: #f0f4ff; border-radius:10px; padding:12px; }
 </style>
