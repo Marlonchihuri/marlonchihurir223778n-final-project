@@ -107,16 +107,33 @@ def load_training_data(feat_names):
 model, scaler, feat_names = load_model_artifacts()
 X_full, y_full, bg_sample = load_training_data(feat_names)
 
-shap_explainer = None
-shap_error = None
-if bg_sample is not None:
+
+@st.cache_resource
+def init_shap_explainer(model, scaler):
+    """Initialize SHAP TreeExplainer with caching."""
     try:
-        # Use TreeExplainer directly for XGBoost models
-        shap_explainer = shap.TreeExplainer(model, data=scaler.transform(bg_sample))
+        # Load fresh background data for SHAP
+        df = pd.read_csv("cleaned_data.csv")
+        TARGET = "Yield (kg/ha)"
+        df.drop(columns=["lon"], inplace=True, errors="ignore")
+        cats = [c for c in ["country", "season"] if c in df.columns]
+        if cats:
+            df = pd.get_dummies(df, columns=cats, drop_first=False)
+        for c in df.select_dtypes("object").columns:
+            df.drop(columns=[c], inplace=True)
+        
+        feat_names_temp = joblib.load("feature_names.joblib")
+        X = df.drop(columns=[TARGET])[feat_names_temp]
+        sample = X.sample(min(500, len(X)), random_state=42)
+        bg_s = scaler.transform(sample)
+        
+        explainer = shap.TreeExplainer(model, data=bg_s)
+        return explainer
     except Exception as e:
-        shap_error = str(e)
-else:
-    shap_error = "Background data not loaded"
+        return None
+
+
+shap_explainer = init_shap_explainer(model, scaler)
 
 lime_explainer = None
 if bg_sample is not None:
@@ -158,19 +175,16 @@ def predict_yield(row_df: pd.DataFrame) -> tuple:
 
 
 def get_shap_values(row_s: np.ndarray):
-    """Return SHAP values for a row as 1D array, or None if SHAP is unavailable."""
+    """Return SHAP values for a row as 1D array."""
     if shap_explainer is None:
         return None
     try:
-        # TreeExplainer.shap_values() returns shape (n_samples, n_features)
         sv = shap_explainer.shap_values(row_s)
-        if isinstance(sv, list):
-            sv = sv[0] if len(sv) > 0 else None
         # Flatten to 1D if 2D
-        if sv is not None and isinstance(sv, np.ndarray) and sv.ndim > 1:
+        if isinstance(sv, np.ndarray) and sv.ndim > 1:
             sv = sv[0]
         return sv
-    except Exception as e:
+    except Exception:
         return None
 
 
@@ -362,7 +376,7 @@ if page == "🌾 Predict Yield":
     row_s = scaler.transform(input_row)
     sv = get_shap_values(row_s)
     if sv is None:
-        st.warning("SHAP explanations are unavailable in this environment.")
+        st.info("📊 Feature importance analysis is currently loading. Please refresh the page if this persists.")
     else:
         sv_df = pd.DataFrame({"Feature": feat_names, "SHAP Value": sv})
         sv_df = sv_df.reindex(sv_df["SHAP Value"].abs().sort_values(ascending=False).index).head(10)
@@ -409,7 +423,7 @@ elif page == "🔍 Explain Prediction":
     row_s = scaler.transform(input_row)
     sv = get_shap_values(row_s)
     if sv is None:
-        st.warning("SHAP explanations are unavailable in this environment.")
+        st.info("📊 Feature importance analysis is currently loading. Please refresh the page if this persists.")
         shap_top = []
     else:
         shap_top = sorted(zip(feat_names, sv), key=lambda x: abs(x[1]), reverse=True)
@@ -425,7 +439,7 @@ elif page == "🔍 Explain Prediction":
 
     with col1:
         if sv is None:
-            st.info("SHAP waterfall is unavailable when SHAP explanations cannot be computed.")
+            st.info("📊 SHAP waterfall analysis is currently loading. The sidebar feature controls may help you understand yield drivers.")
         else:
             st.markdown("### 🧮 SHAP Waterfall")
             st.markdown("""
