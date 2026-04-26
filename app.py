@@ -1,6 +1,7 @@
 # ─────────────────────────────────────────────────────────────────────────────
 # Constants & Config
 # ─────────────────────────────────────────────────────────────────────────────
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -62,33 +63,48 @@ AGRONOMIC_TIPS = [
 # ─────────────────────────────────────────────────────────────────────────────
 # Model Loading (cached — runs once per session)
 # ─────────────────────────────────────────────────────────────────────────────
+def find_artifact(*names):
+    for name in names:
+        if os.path.exists(name):
+            return name
+    raise FileNotFoundError(f"None of {names} exist in {os.getcwd()}")
+
+
 @st.cache_resource
 def load_all_artefacts():
     """
-    Load XGBoost model, scaler, SHAP explainer, LIME explainer,
-    feature names, and XAI quality metrics.
+    Load model artefacts using available .joblib or .pkl filenames.
     Returns a dict of artefacts or an error string.
     """
     artefacts = {}
+
     try:
-        artefacts["model"]         = joblib.load("xgb_model.pkl")
-        artefacts["scaler"]        = joblib.load("scaler.pkl")
-        artefacts["feature_names"] = joblib.load("feature_names.pkl")
-        artefacts["metrics"]       = joblib.load("metrics.pkl")
+        artefacts["model"] = joblib.load(find_artifact("model.joblib", "xgb_model.pkl", "model.pkl"))
+        artefacts["scaler"] = joblib.load(find_artifact("scaler.joblib", "scaler.pkl"))
+        artefacts["feature_names"] = joblib.load(find_artifact("feature_names.joblib", "feature_names.pkl"))
     except FileNotFoundError as e:
         return str(e)
 
+    if os.path.exists("metrics.joblib"):
+        artefacts["metrics"] = joblib.load("metrics.joblib")
+    elif os.path.exists("metrics.pkl"):
+        artefacts["metrics"] = joblib.load("metrics.pkl")
+    else:
+        artefacts["metrics"] = {}
+
     try:
-        with open("shap_explainer.pkl", "rb") as f:
-            artefacts["shap_explainer"] = pickle.load(f)
+        shap_path = find_artifact("shap_explainer.joblib", "shap_explainer.pkl")
+        if shap_path.endswith(".joblib"):
+            artefacts["shap_explainer"] = joblib.load(shap_path)
+        else:
+            with open(shap_path, "rb") as f:
+                artefacts["shap_explainer"] = pickle.load(f)
     except Exception:
-        # Rebuild from model if pickle fails (common across Python versions)
         artefacts["shap_explainer"] = shap.TreeExplainer(artefacts["model"])
 
     try:
-        artefacts["lime_explainer"] = joblib.load("lime_explainer.pkl")
+        artefacts["lime_explainer"] = joblib.load(find_artifact("lime_explainer.joblib", "lime_explainer.pkl"))
     except Exception:
-        # Rebuild LIME from training data sample
         try:
             X_train = pd.read_csv("X_train.csv")
             artefacts["lime_explainer"] = LimeTabularExplainer(
@@ -100,9 +116,11 @@ def load_all_artefacts():
         except Exception:
             artefacts["lime_explainer"] = None
 
-    try:
+    if os.path.exists("xai_metrics.joblib"):
+        artefacts["xai_metrics"] = joblib.load("xai_metrics.joblib")
+    elif os.path.exists("xai_metrics.pkl"):
         artefacts["xai_metrics"] = joblib.load("xai_metrics.pkl")
-    except Exception:
+    else:
         artefacts["xai_metrics"] = {}
 
     return artefacts
@@ -190,7 +208,12 @@ def predict_with_ci(model, scaler, row: pd.DataFrame) -> tuple[float, float, flo
     CI uses 2 × test RMSE as a practical uncertainty estimate.
     """
     try:
-        metrics = joblib.load("metrics.pkl")
+        if os.path.exists("metrics.joblib"):
+            metrics = joblib.load("metrics.joblib")
+        elif os.path.exists("metrics.pkl"):
+            metrics = joblib.load("metrics.pkl")
+        else:
+            metrics = {}
         rmse = metrics.get("test_rmse", 379.5)
     except Exception:
         rmse = 379.5
