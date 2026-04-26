@@ -70,6 +70,16 @@ def find_artifact(*names):
     raise FileNotFoundError(f"None of {names} exist in {os.getcwd()}")
 
 
+def build_shap_explainer(model):
+    try:
+        return shap.TreeExplainer(model)
+    except Exception:
+        try:
+            return shap.Explainer(model, algorithm="auto")
+        except Exception:
+            return None
+
+
 @st.cache_resource
 def load_all_artefacts():
     """
@@ -100,7 +110,7 @@ def load_all_artefacts():
             with open(shap_path, "rb") as f:
                 artefacts["shap_explainer"] = pickle.load(f)
     except Exception:
-        artefacts["shap_explainer"] = shap.TreeExplainer(artefacts["model"])
+        artefacts["shap_explainer"] = None
 
     try:
         artefacts["lime_explainer"] = joblib.load(find_artifact("lime_explainer.joblib", "lime_explainer.pkl"))
@@ -225,15 +235,31 @@ def predict_with_ci(model, scaler, row: pd.DataFrame) -> tuple[float, float, flo
 # SHAP explanation for one sample
 # ─────────────────────────────────────────────────────────────────────────────
 @st.cache_data(ttl=300)
-def compute_shap_for_row(_model, row_tuple: tuple, feature_names: list):
+def compute_shap_for_row(_model, _explainer, row_tuple: tuple, feature_names: list):
     """
     Compute SHAP values for a single input row.
     Row passed as tuple for hashability (Streamlit caching requirement).
     """
     row_df = pd.DataFrame([row_tuple], columns=feature_names)
-    explainer = shap.TreeExplainer(_model)
-    sv = explainer.shap_values(row_df)
-    return sv[0], float(explainer.expected_value)
+    explainer = _explainer if _explainer is not None else build_shap_explainer(_model)
+    if explainer is None:
+        return np.zeros(len(feature_names), dtype=float), 0.0
+
+    try:
+        if hasattr(explainer, "shap_values"):
+            shap_vals = explainer.shap_values(row_df)
+            sv = shap_vals[0] if isinstance(shap_vals, (list, tuple)) else shap_vals[0]
+            base_value = getattr(explainer, "expected_value", 0.0)
+            base_value = float(base_value[0] if isinstance(base_value, (list, tuple, np.ndarray)) else base_value)
+        else:
+            explanation = explainer(row_df)
+            values = np.array(explanation.values)
+            sv = values[0] if values.ndim == 2 else values
+            base_value = explanation.base_values
+            base_value = float(base_value[0] if isinstance(base_value, (list, tuple, np.ndarray)) else base_value)
+        return sv, base_value
+    except Exception:
+        return np.zeros(len(feature_names), dtype=float), 0.0
 
 
 def plot_shap_waterfall_plotly(
@@ -565,7 +591,7 @@ if page == "🔮 Predict Yield":
 
     # Precompute SHAP for this row (used on Explain page too)
     row_tuple = tuple(row_df.iloc[0].values)
-    sv, ev = compute_shap_for_row(model, row_tuple, feature_names)
+    sv, ev = compute_shap_for_row(model, shap_exp, row_tuple, feature_names)
     st.session_state.last_shap = {
         "sv": sv, "ev": ev, "row_df": row_df,
         "prediction": prediction, "country_avg": country_avg,
